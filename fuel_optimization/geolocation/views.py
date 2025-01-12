@@ -1,60 +1,116 @@
-from django.shortcuts import render
-
-# Create your views here.
 from django.http import JsonResponse
-from geopy.distance import geodesic
-from .models import FuelStation
+import json
+from django.conf import settings
+from django.shortcuts import render
+import openrouteservice
+import requests
 
-def fetch_route():
-    # Define hardcoded start and finish locations
-    start = {"lat": 40.7128, "lon": -74.0060}  # Example: New York
-    finish = {"lat": 34.0522, "lon": -118.2437}  # Example: Los Angeles
-    # Simulate the route (replace with actual route logic if needed)
-    route = [
-        {"lat": 40.7128, "lon": -74.0060},
-        {"lat": 39.9526, "lon": -75.1652},  # Example waypoint (Philadelphia)
-        {"lat": 34.0522, "lon": -118.2437},
-    ]
+# Fetch the route data from OpenRouteService API
+def fetch_route_from_ors(start, finish):
+    client = openrouteservice.Client(key=settings.OPENROUTESERVICE_API_KEY)
+    coords = [start, finish]
+    route = client.directions(
+        coordinates=coords,
+        profile='driving-car',
+        format='geojson'
+    )
     return route
 
-def get_cheapest_fuel_nearby(coords):
-    stations = FuelStation.objects.all()
-    closest_station = None
-    min_distance = float('inf')
-    min_price = float('inf')
+# Function to generate fuel stops (this is just mock data; replace with actual data)
+def get_fuel_stops():
+    return [
+        {"name": "Fuel Stop 1", "price": 3.50, "coordinates": [-74.030, 40.730]},
+        {"name": "Fuel Stop 2", "price": 3.80, "coordinates": [-118.250, 34.070]},
+    ]
 
-    for station in stations:
-        # Replace with real coordinates from database if available
-        station_coords = (34.0522, -118.2437)  # Example coordinates
-        distance = geodesic(coords, station_coords).miles
+# Map view function
+def map_view(request):
+    start_coords = [-74.0060, 40.7128]  # Example start (New York)
+    end_coords = [-118.25703, 34.05513]  # Example end (Los Angeles)
+    ors_api_key = settings.OPENROUTESERVICE_API_KEY
 
-        if distance < min_distance or (distance == min_distance and station.retail_price < min_price):
-            min_distance = distance
-            min_price = station.retail_price
-            closest_station = station
+    # Get route data from OpenRouteService
+    route_data = fetch_route_from_ors(start_coords, end_coords)
 
-    if closest_station:
-        return {
-            "location": f"{closest_station.truckstop_name}, {closest_station.city}, {closest_station.state}",
-            "price_per_gallon": closest_station.retail_price
-        }
-    return None
+    # Get fuel stops data
+    fuel_stops = get_fuel_stops()
 
-def fuel_route_api(request):
-    route = fetch_route()
-    stops = []
-    total_cost = 0
+    # Pass the data to the template
+    context = {
+        'start_coords': json.dumps(start_coords),  # Serialize Python list to JSON
+        'end_coords': json.dumps(end_coords),
+        'route_geometry': json.dumps(route_data['features'][0]['geometry']['coordinates']),
+        'fuel_stops': json.dumps(fuel_stops),
+    }
 
-    miles_left = 500  # Maximum range
-    for i in range(len(route) - 1):
-        start_coords = (route[i]["lat"], route[i]["lon"])
-        fuel_stop = get_cheapest_fuel_nearby(start_coords)
-        if fuel_stop:
-            stops.append(fuel_stop)
-            total_cost += fuel_stop["price_per_gallon"] * (miles_left / 10)
+    return render(request, 'map.html', context)
+# from django.http import JsonResponse
+# from django.conf import settings
+# from django.shortcuts import render
+# import json
+# import openrouteservice
+# import requests
 
-    return JsonResponse({
-        "route": route,
-        "stops": stops,
-        "total_cost": round(total_cost, 2),
-    })
+# # Function to get latitude and longitude from place name using OpenRouteService API
+# def get_coordinates_from_place(place_name):
+#     client = openrouteservice.Client(key=settings.OPENROUTESERVICE_API_KEY)  # ORS API key
+#     geocode_result = client.pelias_search(place_name)  # ORS geocoding search
+#     if geocode_result['features']:
+#         lat = geocode_result['features'][0]['geometry']['coordinates'][1]  # Latitude
+#         lon = geocode_result['features'][0]['geometry']['coordinates'][0]  # Longitude
+#         return [lon, lat]  # [lon, lat] format for ORS
+#     else:
+#         return None
+
+# # Fetch the route data from OpenRouteService API using the provided endpoint format
+# def fetch_route_from_ors(start, finish):
+#     api_key = settings.OPENROUTESERVICE_API_KEY  # ORS API key
+#     url = f'https://api.openrouteservice.org/v2/directions/driving-car'
+#     params = {
+#         'api_key': api_key,
+#         'start': f'{start[0]},{start[1]}',  # Longitude, Latitude format
+#         'end': f'{finish[0]},{finish[1]}',  # Longitude, Latitude format
+#     }
+#     response = requests.get(url, params=params)
+
+#     if response.status_code == 200:
+#         route_data = response.json()
+#         return route_data
+#     else:
+#         return None
+
+# # Map view where users can input place names
+# def map_view(request):
+#     start_place = request.GET.get('start_place', 'New York')  # Default value
+#     end_place = request.GET.get('end_place', 'Los Angeles')  # Default value
+
+#     # Get coordinates for the places entered by the user
+#     start_coords = get_coordinates_from_place(start_place)
+#     end_coords = get_coordinates_from_place(end_place)
+
+#     if start_coords and end_coords:
+#         route_data = fetch_route_from_ors(start_coords, end_coords)
+#         print(route_data)  # Check if it's JSON or HTML
+
+#         if route_data:
+#             context = {
+#                 'start_coords': json.dumps(start_coords),  # Ensure it's valid JSON
+#                 'end_coords': json.dumps(end_coords),      # Ensure it's valid JSON
+#                 'start_place': start_place,
+#                 'end_place': end_place,
+#                 'route_geometry': json.dumps(route_data['features'][0]['geometry']['coordinates']),
+#             }
+#         else:
+#             context = {
+#                 'error': 'Could not fetch route data from OpenRouteService.',
+#                 'start_place': start_place,
+#                 'end_place': end_place,
+#             }
+#     else:
+#         context = {
+#             'error': 'Could not find coordinates for one or both of the places.',
+#             'start_place': start_place,
+#             'end_place': end_place,
+#         }
+
+#     return render(request, 'map.html', context)
