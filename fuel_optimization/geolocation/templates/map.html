@@ -6,45 +6,144 @@
     <title>Route Map</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        #map { height: 100vh; }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f9;
+        }
+        
+        .form-container {
+            width: 1300px;
+            padding: 10px;
+            background-color: white;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            margin: 5px;
+            border-radius: 8px;
+        }
+        
+        h2 {
+            text-align: center;
+            color: #333;
+        }
+
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #555;
+        }
+
+        input[type="text"] {
+            width: 97%;
+            padding: 8px;
+            margin-bottom: 15px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+
+        button {
+            width: 97%;
+            padding: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        .error-message {
+            color: red;
+            text-align: center;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+
+        #map {
+            height: 100vh;
+            margin-top: 20px;
+            width: 100%;
+        }
     </style>
 </head>
 <body>
+    <div class="form-container">
+        <h2>Enter Start and End Locations</h2>
+        <form method="GET" action="">
+            <label for="start_place">Start Location: </label>
+            <input type="text" id="start_place" name="start_place" placeholder="Enter start place" required>
+            <br><br>
+            <label for="end_place">End Location: </label>
+            <input type="text" id="end_place" name="end_place" placeholder="Enter end place" required>
+            <br><br>
+            <button type="submit">Get Route</button>
+        </form>
+    
+        {% if error_message %}
+            <p style="color: red;">{{ error_message }}</p>
+        {% endif %}
+    </div>
+
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // Safely fetch variables from Django template context
-        const startCoords = JSON.parse('{{ start_coords|safe|escapejs }}');
-        const endCoords = JSON.parse('{{ end_coords|safe|escapejs }}');
-        const routeGeometry = JSON.parse('{{ route_geometry|safe|escapejs }}');
-        const fuelStops = JSON.parse('{{ fuel_stops|safe|escapejs }}');
+        const startCoords = JSON.parse('{{ start_coords|safe }}');
+        const endCoords = JSON.parse('{{ end_coords|safe }}');
+        const routeGeometry = JSON.parse('{{ route_geometry|safe }}');
+        const fuelStops = JSON.parse('{{ fuel_stops|safe }}');
+        const errorMessage = "{{ error_message }}";
 
         // Initialize the map centered at the starting location
         const map = L.map('map').setView([startCoords[1], startCoords[0]], 4);  // [lat, lon]
-
+    
         // Add a tile layer (OpenStreetMap)
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors',
         }).addTo(map);
-
-        // Add markers for start and end locations
+    
+        // Add markers for start and end locations with detailed text in popups
         L.marker([startCoords[1], startCoords[0]]).addTo(map)
-            .bindPopup("<b>Start Location: New York</b>");
-        
+            .bindPopup(`<b>Start Location: {{ start_place }}</b><br>Coordinates: ${startCoords[1]}, ${startCoords[0]}`);
+    
         L.marker([endCoords[1], endCoords[0]]).addTo(map)
-            .bindPopup("<b>End Location: Los Angeles</b>");
-
-        // Add the route geometry (GeoJSON)
-        const routeCoordinates = routeGeometry.map(coord => [coord[1], coord[0]]); // Flip [lon, lat] to [lat, lon]
+            .bindPopup(`<b>End Location: {{ end_place }}</b><br>Coordinates: ${endCoords[1]}, ${endCoords[0]}`);
+    
+        // Add the route geometry (polyline)
+        const routeCoordinates = routeGeometry.map(coord => [coord[1], coord[0]]);
         const routeLine = L.polyline(routeCoordinates, { color: 'blue', weight: 4 }).addTo(map);
         map.fitBounds(routeLine.getBounds());
-
-        // Add fuel stops to the map
-        fuelStops.forEach(stop => {
-            L.marker([stop.coordinates[1], stop.coordinates[0]]).addTo(map)
-                .bindPopup(`<b>${stop.name}</b><br>Price: $${stop.price}`);
+        // Add markers for start and end locations if geocoding was successful
+        if (!errorMessage) {
+            L.marker([startCoords[1], startCoords[0]]).addTo(map)
+                .bindPopup("<b>Start Location: {{ start_place }}</b>");
+            
+            L.marker([endCoords[1], endCoords[0]]).addTo(map)
+                .bindPopup("<b>End Location: {{ end_place }}</b>"); };
+        // Create a marker cluster group
+        const fuelStopsLayer = L.markerClusterGroup();
+    
+        // Add markers for fuel stops
+        fuelStops.forEach(function(stop) {
+            const marker = L.marker([stop.coordinates[1], stop.coordinates[0]])
+                .bindPopup(`
+                    <b>${stop.truckstop_name}</b><br>
+                    Price: $${stop.retail_price}<br>
+                    Address: ${stop.address}, ${stop.city}, ${stop.state}
+                `);
+    
+            // Add the marker to the cluster
+            fuelStopsLayer.addLayer(marker);
         });
+    
+        // Add the cluster layer to the map
+        map.addLayer(fuelStopsLayer);
     </script>
 </body>
 </html>
