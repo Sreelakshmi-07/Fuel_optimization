@@ -15,8 +15,10 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from geolocation import views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('geolocation.urls')),
+    path('map/', views.map_view, name='map')
 ]
